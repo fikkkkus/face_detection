@@ -1,56 +1,82 @@
-# Этап сборки
-FROM python:3.9-slim AS builder
+FROM python:3.6-alpine
 
-# Установка необходимых системных зависимостей
-RUN apt-get update && \
-    apt-get install -y \
-    build-essential \
+WORKDIR /usr/src/
+
+# Обновление apk индекса и установка необходимых зависимостей
+RUN apk update && apk add --no-cache \
+    build-base \
+    ca-certificates \
+    clang-dev \
+    clang \
     cmake \
-    git \
-    libgtk2.0-dev \
-    pkg-config \
-    libavcodec-dev \
-    libavformat-dev \
-    libswscale-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libv4l-dev \
-    libatlas-base-dev \
-    gfortran \
-    python3-dev && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    libwebp-dev \
+    linux-headers \
+    openssl \
+    python3-dev \
+    unzip \
+    zlib-dev \
+    libxml2-dev \
+    libxslt-dev \
+    && rm -rf /var/cache/apk/*  # Удаление кеша после установки
 
-# Установка numpy
-RUN pip install numpy
+# Установка Python-зависимостей
+RUN pip3 install numpy
 
-# Клонирование и сборка OpenCV
-RUN git clone https://github.com/opencv/opencv.git && \
-    git clone https://github.com/opencv/opencv_contrib.git && \
-    cd opencv && \
-    mkdir build && \
-    cd build && \
-    cmake -D CMAKE_BUILD_TYPE=RELEASE \
-          -D CMAKE_INSTALL_PREFIX=/usr/local \
-          -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules \
-          .. && \
-    make -j$(nproc) && \
-    make install && \
-    ldconfig
+# Задание версии OpenCV
+ENV OPENCV_VERSION=4.2.0
 
-# Финальный образ
-FROM python:3.9-slim
+RUN mkdir /usr/src/opencv-tmp
 
-# Копирование собранных файлов из этапа сборки
-COPY --from=builder /usr/local /usr/local
+# Загрузка и распаковка OpenCV core
+RUN wget -O /usr/src/opencv-tmp/opencv.zip https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip \
+    && unzip /usr/src/opencv-tmp/opencv.zip \
+    && mv opencv-${OPENCV_VERSION} /usr/src/opencv
 
-# Копирование вашего приложения в контейнер
-COPY . /app
-WORKDIR /app
+# Загрузка и распаковка OpenCV contrib
+RUN wget -O /usr/src/opencv-tmp/opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/${OPENCV_VERSION}.zip \
+    && unzip /usr/src/opencv-tmp/opencv_contrib.zip \
+    && mv opencv_contrib-${OPENCV_VERSION} /usr/src/opencv_contrib
 
-# Установка зависимостей вашего приложения
-RUN pip install -r requirements.txt
+WORKDIR /usr/src/opencv/build
 
-# Команда для запуска приложения
-ENTRYPOINT ["python", "face_detection.py"]
+# Конфигурация опций сборки
+RUN cmake \
+    -D CMAKE_BUILD_TYPE=RELEASE \
+    -D CMAKE_C_COMPILER=/usr/bin/clang \
+    -D CMAKE_CXX_COMPILER=/usr/bin/clang++ \
+    -D CMAKE_INSTALL_PREFIX=/usr/local \
+    -D OPENCV_EXTRA_MODULES_PATH=/usr/src/opencv_contrib/modules \
+    -D PYTHON3_LIBRARY=`python -c 'import subprocess ; import sys ; s = subprocess.check_output("python-config --configdir", shell=True).decode("utf-8").strip() ; (M, m) = sys.version_info[:2] ; print("{}/libpython{}.{}.dylib".format(s, M, m))'` \
+    -D PYTHON3_INCLUDE_DIR=`python -c 'import distutils.sysconfig as s; print(s.get_python_inc())'` \
+    -D PYTHON3_EXECUTABLE=/usr/local/bin/python3 \
+    -D BUILD_opencv_python2=OFF \
+    -D BUILD_opencv_python3=ON \
+    -D INSTALL_PYTHON_EXAMPLES=ON \
+    -D INSTALL_C_EXAMPLES=OFF \
+    -D OPENCV_ENABLE_NONFREE=ON \
+    -D BUILD_EXAMPLES=ON \
+    ..
+
+# Компиляция (с использованием всех доступных ядер)
+RUN make -j$(nproc)
+
+# Установка OpenCV
+RUN make install
+
+# Обновление ссылок на библиотеки
+RUN ldconfig /etc/ld.so.conf.d
+
+# Переход в директорию проекта
+WORKDIR /usr/src/project
+
+# Очистка временных файлов после сборки
+RUN rm -rf /usr/src/opencv/build \
+    && rm -rf /usr/src/opencv-tmp  # Удаление временной директории
+
+# Копирование скрипта и файлов по умолчанию
+COPY face_detector.py /usr/src/project/face_detector.py
+COPY default_image.jpg /usr/src/project/default_image.jpg
+COPY haarcascade_frontalface_default.xml /usr/src/project/haarcascade_frontalface_default.xml
+
+# Установка точки входа для запуска скрипта
+ENTRYPOINT ["python3", "/usr/src/project/face_detector.py"]

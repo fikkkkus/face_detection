@@ -1,30 +1,28 @@
 import cv2
 import sys
+import os
 
 def detect_faces(image_path):
-    # Загружаем каскадный классификатор для обнаружения лиц
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    face_cascade = cv2.CascadeClassifier('/usr/src/project/haarcascade_frontalface_default.xml')
 
-    # Загружаем изображение
     img = cv2.imread(image_path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Обнаруживаем лица
     faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
-    # Рисуем прямоугольники вокруг обнаруженных лиц
     for (x, y, w, h) in faces:
         cv2.rectangle(img, (x, y), (x+w, y+h), (0, 0, 255), 2)
 
-    # Сохраняем результат
-    cv2.imwrite('output.jpg', img)
+    output_path = os.path.join('/output', 'output.jpg')
+    print(output_path)
+    cv2.imwrite(output_path, img)
 
-    # Выводим количество найденных лиц
+    # Р’С‹РІРѕРґРёРј РєРѕР»РёС‡РµСЃС‚РІРѕ РЅР°Р№РґРµРЅРЅС‹С… Р»РёС†
     print(f"Найдено лиц: {len(faces)}")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         image_path = sys.argv[1]
     else:
-        image_path = 'default_image.jpg'  # Укажите имя файла изображения по умолчанию
+        image_path = '/usr/src/project/default_image.jpg'  # РЈРєР°Р¶РёС‚Рµ РёРјСЏ С„Р°Р№Р»Р° РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
     detect_faces(image_path)
